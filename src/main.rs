@@ -11,8 +11,6 @@ use std::fs::File;
 use std::io::Error;
 use std::io::Result as ioResult;
 use std::path::Path;
-use std::process::Command;
-use std::process::Output;
 use tokio::sync::Mutex;
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
@@ -95,7 +93,21 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
     };
     trace!("Running command: {:?}", command);
 
-    let mut child = command.spawn().expect("Failed to spawn command");
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            error!("Failed to spawn command: {:?}", e);
+            if let Some(13) = e.raw_os_error() {
+                error!("Permission denied: Please check the permissions of the command or the file paths.");
+            }
+            let mut data_lock: MutexGuard<'_, AppState> = data.lock().await;
+            let mut status_map: MutexGuard<'_, HashMap<String, String>> =
+                data_lock.request_status.lock().await;
+            status_map.insert(request_id.clone(), "Error".to_string());
+            return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+        }
+    };
+
     let stdout = child.stdout.take().expect("Failed to open stdout");
 
     let reader = io::BufReader::new(stdout);
@@ -168,7 +180,10 @@ async fn main() -> ioResult<()> {
     }));
 
     HttpServer::new(move || {
-        let cors = Cors::permissive();
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header();
 
         App::new()
             .wrap(cors)
