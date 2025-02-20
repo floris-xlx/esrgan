@@ -18,6 +18,7 @@
       <button type="button" onclick="uploadImage()">Upload and Upscale</button>
     </form>
     <div id="response"></div>
+    <div id="upscaledImageContainer"></div>
 
     <script>
       async function uploadImage() {
@@ -37,12 +38,44 @@
             body: formData,
           });
 
-          const result = await response.text();
-          document.getElementById("response").innerText = result;
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const result = await response.json();
+          document.getElementById("response").innerText = `Request ID: ${result.data.request_id}`;
+
+          checkStatus(result.data.request_id);
         } catch (error) {
           console.error("Error uploading image:", error);
           document.getElementById("response").innerText =
             `Error uploading image: ${error.message}`;
+        }
+      }
+
+      async function checkStatus(requestId) {
+        try {
+          const statusResponse = await fetch(`http://localhost:3443/status/${requestId}`);
+          if (!statusResponse.ok) {
+            throw new Error(`HTTP error! status: ${statusResponse.status}`);
+          }
+
+          const statusResult = await statusResponse.json();
+          document.getElementById("response").innerText = `Status: ${statusResult.status}`;
+
+          if (statusResult.status === "Completed") {
+            const imgElement = document.createElement("img");
+            imgElement.src = `./cache/upscaled_${requestId}.png`; // Assuming the image is saved with this naming convention
+            imgElement.alt = "Upscaled Image";
+            document.getElementById("upscaledImageContainer").innerHTML = "";
+            document.getElementById("upscaledImageContainer").appendChild(imgElement);
+          } else if (statusResult.status === "Processing") {
+            setTimeout(() => checkStatus(requestId), 2000); // Check again after 2 seconds
+          }
+        } catch (error) {
+          console.error("Error checking status:", error);
+          document.getElementById("response").innerText =
+            `Error checking status: ${error.message}`;
         }
       }
     </script>
