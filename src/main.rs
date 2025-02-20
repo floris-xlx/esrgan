@@ -70,7 +70,8 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
             let original_path: String = original_path.clone();
             move || File::create(&original_path)
         })
-        .await;
+        .await
+        .expect("Failed to execute blocking operation");
 
         let mut f: fs::File = match file_result {
             Ok(file) => file,
