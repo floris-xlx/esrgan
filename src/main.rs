@@ -38,9 +38,30 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
     status_map.insert(request_id.clone(), "Processing".to_string());
 
     while let Some(item) = payload.next().await {
-        let mut field: Field = item.unwrap();
-        let content_disposition: &ContentDisposition = field.content_disposition().unwrap();
-        image_name = content_disposition.get_filename().unwrap().to_string();
+        let mut field: Field = match item {
+            Ok(field) => field,
+            Err(e) => {
+                error!("Error processing multipart item: {:?}", e);
+                status_map.insert(request_id.clone(), "Error".to_string());
+                return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+            }
+        };
+        let content_disposition: &ContentDisposition = match field.content_disposition() {
+            Some(cd) => cd,
+            None => {
+                error!("Content disposition not found");
+                status_map.insert(request_id.clone(), "Error".to_string());
+                return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+            }
+        };
+        image_name = match content_disposition.get_filename() {
+            Some(name) => name.to_string(),
+            None => {
+                error!("Filename not found in content disposition");
+                status_map.insert(request_id.clone(), "Error".to_string());
+                return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+            }
+        };
         info!("Processing file: {}", image_name);
         original_path = format!("{}/{}", cache_dir, image_name);
         upscaled_path = format!("{}/upscaled_{}", cache_dir, image_name);
@@ -49,23 +70,39 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
             let original_path: String = original_path.clone();
             move || File::create(&original_path)
         })
-        .await
-        .unwrap();
+        .await;
 
-        let mut f: fs::File = file_result.unwrap();
+        let mut f: fs::File = match file_result {
+            Ok(file) => file,
+            Err(e) => {
+                error!("Error creating file {}: {:?}", original_path, e);
+                status_map.insert(request_id.clone(), "Error".to_string());
+                return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+            }
+        };
         info!("Saving file to: {}", original_path);
         while let Some(chunk) = field.next().await {
-            let data: web::Bytes = chunk.unwrap();
-            web::block({
+            let data: web::Bytes = match chunk {
+                Ok(data) => data,
+                Err(e) => {
+                    error!("Error reading chunk: {:?}", e);
+                    status_map.insert(request_id.clone(), "Error".to_string());
+                    return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+                }
+            };
+            if let Err(e) = web::block({
                 let mut f = f.try_clone().expect("Failed to clone file handle");
                 move || {
                     std::io::Write::write_all(&mut f, &data)
                         .map(|_| f)
-                        .expect("Failed to write data to file")
                 }
             })
             .await
-            .unwrap();
+            {
+                error!("Error writing data to file: {:?}", e);
+                status_map.insert(request_id.clone(), "Error".to_string());
+                return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+            }
         }
     }
 
@@ -108,41 +145,56 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
         }
     };
 
-    let stdout = child.stdout.take().expect("Failed to open stdout");
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            error!("Failed to open stdout");
+            status_map.insert(request_id.clone(), "Error".to_string());
+            return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+        }
+    };
 
     let reader = io::BufReader::new(stdout);
     let mut lines = reader.lines();
 
-    while let Some(line) = lines.next_line().await.expect("Failed to read line") {
+    while let Some(line) = match lines.next_line().await {
+        Ok(line) => line,
+        Err(e) => {
+            error!("Failed to read line: {:?}", e);
+            status_map.insert(request_id.clone(), "Error".to_string());
+            return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+        }
+    } {
         println!("Upscaling process output: {}", line);
     }
 
-    let output = child.wait_with_output().await;
+    let output = match child.wait_with_output().await {
+        Ok(output) => output,
+        Err(e) => {
+            error!("Error waiting for command output: {:?}", e);
+            status_map.insert(request_id.clone(), "Error".to_string());
+            return HttpResponse::InternalServerError().json(json!({"status": "Error", "data": {"request_id": request_id}}));
+        }
+    };
 
     let mut data_lock: MutexGuard<'_, AppState> = data.lock().await;
     let mut status_map: MutexGuard<'_, HashMap<String, String>> =
         data_lock.request_status.lock().await;
 
-    let status = match output {
-        Ok(_) => {
-            if Path::new(&upscaled_path).exists() {
-                info!("Upscaling successful, file saved to: {}", upscaled_path);
-                status_map.insert(request_id.clone(), "Completed".to_string());
-                "Completed"
-            } else {
-                error!("Upscaling failed, upscaled file not found");
-                status_map.insert(request_id.clone(), "Failed".to_string());
-                "Failed"
-            }
+    let status = if output.status.success() {
+        if Path::new(&upscaled_path).exists() {
+            info!("Upscaling successful, file saved to: {}", upscaled_path);
+            status_map.insert(request_id.clone(), "Completed".to_string());
+            "Completed"
+        } else {
+            error!("Upscaling failed, upscaled file not found");
+            status_map.insert(request_id.clone(), "Failed".to_string());
+            "Failed"
         }
-        Err(e) => {
-            error!("Error running upscaling process: {:?}", e);
-            if let Some(8) = e.raw_os_error() {
-                error!("Exec format error: This might be due to an incompatible binary format.");
-            }
-            status_map.insert(request_id.clone(), "Error".to_string());
-            "Error"
-        }
+    } else {
+        error!("Upscaling process exited with error: {:?}", output.status);
+        status_map.insert(request_id.clone(), "Error".to_string());
+        "Error"
     };
 
     HttpResponse::Ok().json(json!({"status": status, "data": {"request_id": request_id}}))
