@@ -32,6 +32,3 @@ Cargo.lock
 *.mp4
 *.webm
 *.ogg
-/realesrgan-ncnn-ubuntu
-*.bin 
-*.param
