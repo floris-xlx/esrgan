@@ -1,0 +1,5 @@
+{
+  "project_name": "esrgan.xylex.cloud",
+  "port": 3443,
+  "build_dir": "/home/floris-xlx/repos/esrgan"
+}
