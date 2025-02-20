@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Upscaler</title>
+  </head>
+  <body>
+    <h1>Upload an Image to Upscale</h1>
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input
+        type="file"
+        id="imageFile"
+        name="imageFile"
+        accept="image/*"
+        required
+      />
+      <button type="button" onclick="uploadImage()">Upload and Upscale</button>
+    </form>
+    <div id="response"></div>
+
+    <script>
+      async function uploadImage() {
+        const fileInput = document.getElementById("imageFile");
+        const file = fileInput.files[0];
+        if (!file) {
+          alert("Please select an image file to upload.");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("imageFile", file);
+
+        try {
+          const response = await fetch("http://localhost:3443/upscale", {
+            method: "POST",
+            body: formData,
+          });
+
+          const result = await response.text();
+          document.getElementById("response").innerText = result;
+        } catch (error) {
+          console.error("Error uploading image:", error);
+          document.getElementById("response").innerText =
+            `Error uploading image: ${error.message}`;
+        }
+      }
+    </script>
+  </body>
+</html>
