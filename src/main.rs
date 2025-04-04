@@ -243,7 +243,11 @@ async fn main() -> ioResult<()> {
     info!("Starting server");
     init_tracing();
 
+    #[cfg(windows)]
     let cache_dir: &str = "C:/Users/floris/Documents/Github/esrgan/cache";
+    
+    #[cfg(unix)]
+    let cache_dir: &str = "/home/floris-xlx/repos/esrgan/cache";
     fs::create_dir_all(cache_dir)?;
     info!("Cache directory created at: {}", cache_dir);
 
