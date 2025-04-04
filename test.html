@@ -33,7 +33,7 @@
         formData.append("imageFile", file);
 
         try {
-          const response = await fetch("https://esrgan.xylex.cloud/upscale", {
+          const response = await fetch("http://localhost:3443/upscale", {
             method: "POST",
             body: formData,
           });
@@ -45,7 +45,8 @@
           const result = await response.json();
           document.getElementById("response").innerText = `Request ID: ${result.data.request_id}`;
 
-          checkStatus(result.data.request_id);
+          const fileExtension = file.name.split('.').pop();
+          checkStatus(result.data.request_id, fileExtension);
         } catch (error) {
           console.error("Error uploading image:", error);
           document.getElementById("response").innerText =
@@ -53,9 +54,9 @@
         }
       }
 
-      async function checkStatus(requestId) {
+      async function checkStatus(requestId, fileExtension) {
         try {
-          const statusResponse = await fetch(`https://esrgan.xylex.cloud/status/${requestId}`);
+          const statusResponse = await fetch(`http://localhost:3443/status/${requestId}`);
           if (!statusResponse.ok) {
             throw new Error(`HTTP error! status: ${statusResponse.status}`);
           }
@@ -65,12 +66,15 @@
 
           if (statusResult.status === "Completed") {
             const imgElement = document.createElement("img");
-            imgElement.src = `./cache/upscaled_${requestId}.png`; // Assuming the image is saved with this naming convention
+            imgElement.src = `C:/Users/floris/Documents/GitHub/esrgan/cache/${requestId}.${fileExtension}`; // Use the request_id and file extension to form the image path
             imgElement.alt = "Upscaled Image";
+            imgElement.style.maxWidth = "800px"; // Set max width for the image
+            imgElement.style.maxHeight = "100%"; // Set max height for the image
+            imgElement.style.objectFit = "contain"; // Maintain aspect ratio
             document.getElementById("upscaledImageContainer").innerHTML = "";
             document.getElementById("upscaledImageContainer").appendChild(imgElement);
           } else if (statusResult.status === "Processing") {
-            setTimeout(() => checkStatus(requestId), 2000); // Check again after 2 seconds
+            setTimeout(() => checkStatus(requestId, fileExtension), 2000); // Check again after 2 seconds
           }
         } catch (error) {
           console.error("Error checking status:", error);

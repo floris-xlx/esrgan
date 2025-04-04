@@ -64,7 +64,6 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
         };
         info!("Processing file: {}", image_name);
         original_path = format!("{}/{}", cache_dir, image_name);
-        upscaled_path = format!("{}/upscaled_{}", cache_dir, image_name);
 
         let file_result: Result<fs::File, Error> = web::block({
             let original_path: String = original_path.clone();
@@ -111,9 +110,21 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
     use tokio::io::{self, AsyncBufReadExt};
     use std::process::Stdio;
 
+    // Determine the file extension from the original image name
+    let extension = Path::new(&image_name)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("jpg");
+
+    // Update the upscaled path to use the request_id and the determined extension
+    upscaled_path = format!("{}/{}.{}", cache_dir, request_id, extension);
+
     info!("Starting upscaling process for: {}", original_path);
+    #[cfg(windows)]
+    let command_path: &str = "./realesrgan-ncnn-windows/realesrgan-ncnn-vulkan.exe";
+    #[cfg(not(windows))]
     let command_path: &str = "./realesrgan-ncnn-ubuntu/realesrgan-ncnn-vulkan";
-    let args = [
+    let args: [&str; 8] = [
         "-i",
         &original_path,
         "-o",
@@ -123,6 +134,8 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
         "-s",
         "2",
     ];
+    info!("Command path: {}", command_path);
+    info!("Command args: {:#?}", args);
     let mut command: Command = {
         let mut cmd: Command = Command::new(command_path);
         cmd.args(&args);
@@ -131,7 +144,7 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
     };
     trace!("Running command: {:?}", command);
 
-    let mut child = match command.spawn() {
+    let mut child: tokio::process::Child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
             error!("Failed to spawn command: {:?}", e);
@@ -169,6 +182,13 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
         println!("Upscaling process output: {}", line);
     }
 
+    // Check if the upscaled file exists before waiting for the command to finish
+    if Path::new(&upscaled_path).exists() {
+        info!("Upscaling successful, file saved to: {}", upscaled_path);
+        status_map.insert(request_id.clone(), "Completed".to_string());
+        return HttpResponse::Ok().json(json!({"status": "Completed", "data": {"request_id": request_id, "upscaled_path": upscaled_path}}));
+    }
+
     let output = match child.wait_with_output().await {
         Ok(output) => output,
         Err(e) => {
@@ -198,7 +218,7 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
         "Error"
     };
 
-    HttpResponse::Ok().json(json!({"status": status, "data": {"request_id": request_id}}))
+    HttpResponse::Ok().json(json!({"status": status, "data": {"request_id": request_id, "upscaled_path": upscaled_path}}))
 }
 
 async fn get_status(data: Data<Mutex<AppState>>, request_id: web::Path<String>) -> impl Responder {
@@ -223,7 +243,7 @@ async fn main() -> ioResult<()> {
     info!("Starting server");
     init_tracing();
 
-    let cache_dir: &str = "/home/floris-xlx/repos/esrgan/cache";
+    let cache_dir: &str = "C:/Users/floris/Documents/Github/esrgan/cache";
     fs::create_dir_all(cache_dir)?;
     info!("Cache directory created at: {}", cache_dir);
 
