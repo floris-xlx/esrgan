@@ -33,7 +33,7 @@
         formData.append("imageFile", file);
 
         try {
-          const response = await fetch("https://esrgan.xylex.cloud/upscale", {
+          const response = await fetch("http://localhost:3443/upscale", {
             method: "POST",
             body: formData,
           });
@@ -56,7 +56,7 @@
 
       async function checkStatus(requestId, fileExtension) {
         try {
-          const statusResponse = await fetch(`https://esrgan.xylex.cloud/status/${requestId}`);
+          const statusResponse = await fetch(`http://localhost:3443/status/${requestId}`);
           if (!statusResponse.ok) {
             throw new Error(`HTTP error! status: ${statusResponse.status}`);
           }
