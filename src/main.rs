@@ -168,8 +168,8 @@ async fn upscale_image_post(data: Data<Mutex<AppState>>, mut payload: Multipart)
         }
     };
 
-    let reader = io::BufReader::new(stdout);
-    let mut lines = reader.lines();
+    let reader: io::BufReader<tokio::process::ChildStdout> = io::BufReader::new(stdout);
+    let mut lines: io::Lines<io::BufReader<tokio::process::ChildStdout>> = reader.lines();
 
     while let Some(line) = match lines.next_line().await {
         Ok(line) => line,
